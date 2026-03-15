@@ -1,6 +1,6 @@
-const OpenAI = require('openai');
+const { GoogleGenAI } = require('@google/genai');
 
-const openai = new OpenAI({ apiKey: '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=' });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
 
 // Helper to format LMS Context
 const generateSystemPrompt = (courses) => {
@@ -28,4 +28,4 @@ const generateSystemPrompt = (courses) => {
   - Do NOT invent courses that do not exist on the platform. If asked for something not in the list, state it's currently unavailable but recommend a similar alternative if possible.`;
 };
 
-module.exports = { openai, generateSystemPrompt };
+module.exports = { ai, generateSystemPrompt };
