@@ -2,8 +2,8 @@
     "version": 2,
     "builds": [
         {
-            "src": "package.json",
-            "use": "@vercel/static-build"
+            "src": "client/dist/**",
+            "use": "@vercel/static"
         },
         {
             "src": "api/index.js",
@@ -19,5 +19,11 @@
             "src": "/(.*)",
             "dest": "/client/dist/$1"
         }
-    ]
+    ],
+    "build": {
+        "env": {
+            "BUILD_COMMAND": "cd client && npm run build",
+            "OUTPUT_DIRECTORY": "client/dist"
+        }
+    }
 }
