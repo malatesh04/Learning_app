@@ -14,7 +14,7 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchDashboard = async () => {
       try {
-        const res = await axios.get('http://localhost:5000/api/dashboard/enrolled');
+        const res = await axios.get('/api/dashboard/enrolled');
         setEnrolledCourses(res.data);
       } catch (err) {
         console.error(err);

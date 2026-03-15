@@ -56,7 +56,7 @@ const Profile = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await axios.get('http://localhost:5000/api/dashboard/enrolled');
+        const res = await axios.get('/api/dashboard/enrolled');
         setCourses(res.data);
       } catch (err) {
         console.error('Error fetching profile data', err);
@@ -72,7 +72,7 @@ const Profile = () => {
     if (!newName.trim()) return;
     
     try {
-      const res = await axios.put('http://localhost:5000/api/auth/update-profile', {
+      const res = await axios.put('/api/auth/update-profile', {
         name: newName
       });
       updateUser(res.data.token, res.data.user);
@@ -92,7 +92,7 @@ const Profile = () => {
     }
 
     try {
-      await axios.put('http://localhost:5000/api/auth/update-password', {
+      await axios.put('/api/auth/update-password', {
         currentPassword: passwords.current,
         newPassword: passwords.new
       });

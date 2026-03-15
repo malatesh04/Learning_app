@@ -1,10 +1,26 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const dotenv = require('dotenv');
+const fs = require('fs');
 
 dotenv.config();
 
-const dbPath = path.resolve(__dirname, process.env.DB_PATH || './lms.db');
+let dbPath = path.resolve(__dirname, process.env.DB_PATH || './lms.db');
+
+// In Vercel serverless functions, the file system is read-only. We copy the DB to /tmp so the app can still run.
+// Note: In Vercel, data saved here will reset after periods of inactivity, but it will prevent immediate crashes.
+if (process.env.VERCEL) {
+  const tmpDbPath = '/tmp/lms.db';
+  if (!fs.existsSync(tmpDbPath)) {
+    try {
+      fs.copyFileSync(dbPath, tmpDbPath);
+    } catch (err) {
+      console.error('Error copying DB to /tmp:', err);
+    }
+  }
+  dbPath = tmpDbPath;
+}
+
 const db = new Database(dbPath);
 
 // Initialize Tables

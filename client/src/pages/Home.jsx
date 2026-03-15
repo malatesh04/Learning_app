@@ -9,7 +9,7 @@ const Home = () => {
   useEffect(() => {
     const fetchCourses = async () => {
       try {
-        const res = await axios.get('http://localhost:5000/api/courses');
+        const res = await axios.get('/api/courses');
         const sortedCourses = res.data.sort((a, b) => {
           const getPriority = (title) => {
             const t = title.toLowerCase();

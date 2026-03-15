@@ -42,7 +42,7 @@ const AdminDashboard = () => {
 
   const fetchStats = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/admin/stats', {
+      const res = await axios.get('/api/admin/stats', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setStats(res.data);
@@ -53,7 +53,7 @@ const AdminDashboard = () => {
 
   const fetchCourses = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/courses');
+      const res = await axios.get('/api/courses');
       setCourses(res.data);
     } catch (err) {
       console.error(err);
@@ -65,7 +65,7 @@ const AdminDashboard = () => {
   // Student management functions
   const fetchStudents = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/admin/students', {
+      const res = await axios.get('/api/admin/students', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setStudents(res.data);
@@ -80,7 +80,7 @@ const AdminDashboard = () => {
       if (query.trim() === '') {
         fetchStudents();
       } else {
-        const res = await axios.get(`http://localhost:5000/api/admin/students/search?q=${encodeURIComponent(query)}`, {
+        const res = await axios.get(`/api/admin/students/search?q=${encodeURIComponent(query)}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
         setStudents(res.data);
@@ -92,7 +92,7 @@ const AdminDashboard = () => {
 
   const toggleBlockStudent = async (studentId) => {
     try {
-      await axios.put(`http://localhost:5000/api/admin/students/${studentId}/block`, {}, {
+      await axios.put(`/api/admin/students/${studentId}/block`, {}, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       fetchStudents();
@@ -103,7 +103,7 @@ const AdminDashboard = () => {
 
   const removeStudent = async (studentId) => {
     try {
-      await axios.delete(`http://localhost:5000/api/admin/students/${studentId}`, {
+      await axios.delete(`/api/admin/students/${studentId}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setStudentDeleteConfirm(null);
@@ -115,7 +115,7 @@ const AdminDashboard = () => {
 
   const viewStudentProgress = async (student) => {
     try {
-      const res = await axios.get(`http://localhost:5000/api/admin/students/${student.id}/progress`, {
+      const res = await axios.get(`/api/admin/students/${student.id}/progress`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setStudentProgress(res.data);
@@ -129,7 +129,7 @@ const AdminDashboard = () => {
 
   const viewCompletedCourses = async (student) => {
     try {
-      const res = await axios.get(`http://localhost:5000/api/admin/students/${student.id}/courses`, {
+      const res = await axios.get(`/api/admin/students/${student.id}/courses`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setStudentProgress(res.data);
@@ -145,10 +145,10 @@ const AdminDashboard = () => {
   const fetchAnalytics = async () => {
     try {
       const [usersRes, coursesRes] = await Promise.all([
-        axios.get(`http://localhost:5000/api/admin/analytics/users?period=${analyticsPeriod}`, {
+        axios.get(`/api/admin/analytics/users?period=${analyticsPeriod}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         }),
-        axios.get('http://localhost:5000/api/admin/analytics/courses', {
+        axios.get('/api/admin/analytics/courses', {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         })
       ]);
@@ -190,9 +190,9 @@ const AdminDashboard = () => {
     e.preventDefault();
     try {
       if (editingCourse) {
-        await axios.put(`http://localhost:5000/api/courses/${editingCourse.id}`, courseData);
+        await axios.put(`/api/courses/${editingCourse.id}`, courseData);
       } else {
-        await axios.post('http://localhost:5000/api/courses', courseData);
+        await axios.post('/api/courses', courseData);
       }
       setShowModal(false);
       fetchCourses();
@@ -208,7 +208,7 @@ const AdminDashboard = () => {
   const executeDelete = async () => {
     if (deleteConfirmId) {
       try {
-        await axios.delete(`http://localhost:5000/api/courses/${deleteConfirmId}`);
+        await axios.delete(`/api/courses/${deleteConfirmId}`);
         fetchCourses();
         fetchStats();
       } catch (err) {

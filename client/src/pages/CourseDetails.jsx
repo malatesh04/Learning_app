@@ -69,11 +69,11 @@ const CourseDetails = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await axios.get(`http://localhost:5000/api/courses/${id}`);
+        const res = await axios.get(`/api/courses/${id}`);
         setCourse(res.data);
         
         if (user) {
-          const enrolledRes = await axios.get('http://localhost:5000/api/dashboard/enrolled');
+          const enrolledRes = await axios.get('/api/dashboard/enrolled');
           setIsEnrolled(enrolledRes.data.some(c => c.id === parseInt(id)));
         }
       } catch (err) {
@@ -96,7 +96,7 @@ const CourseDetails = () => {
 
   const completeEnrollment = async () => {
     try {
-      await axios.post(`http://localhost:5000/api/courses/${id}/enroll`);
+      await axios.post(`/api/courses/${id}/enroll`);
       setIsEnrolled(true);
       setShowPayment(false);
       setNotification({

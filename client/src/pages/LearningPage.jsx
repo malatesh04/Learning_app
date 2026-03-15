@@ -17,10 +17,10 @@ const LearningPage = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await axios.get(`http://localhost:5000/api/courses/${id}`);
+        const res = await axios.get(`/api/courses/${id}`);
         setCourse(res.data);
         
-        const progressRes = await axios.get(`http://localhost:5000/api/courses/${id}/progress`);
+        const progressRes = await axios.get(`/api/courses/${id}/progress`);
         setCompletedLessons(progressRes.data.completedLessons);
 
         // Find first uncompleted lesson or default to first
@@ -38,7 +38,7 @@ const LearningPage = () => {
 
   const markComplete = async (lessonId) => {
     try {
-      await axios.post(`http://localhost:5000/api/courses/${id}/lessons/${lessonId}/complete`);
+      await axios.post(`/api/courses/${id}/lessons/${lessonId}/complete`);
       if (!completedLessons.includes(lessonId)) {
         setCompletedLessons([...completedLessons, lessonId]);
       }
