@@ -22,6 +22,18 @@ const seedData = async () => {
             adminId = user ? user.id : 1;
         }
 
+        // Add the user's admin account
+        try {
+            const userHash = bcrypt.hashSync('Malatesh@12', 8);
+            const userResult = await db.prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)').run('Malatesh BN', 'malateshbn178@gmail.com', userHash, 'admin');
+            console.log('User admin account created');
+        } catch (e) {
+            console.log('User admin account probably exists, updating...');
+            const userHash = bcrypt.hashSync('Malatesh@12', 8);
+            await db.prepare('UPDATE users SET password = ?, role = ? WHERE email = ?').run(userHash, 'admin', 'malateshbn178@gmail.com');
+            console.log('User admin account updated');
+        }
+
         let instructorId;
         try {
             const inst = await db.prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)').run('Expert Instructor', 'instructor@learnbox.com', instHash, 'instructor');
