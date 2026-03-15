@@ -39,12 +39,12 @@ const authorizeRoles = (...roles) => {
 
 // --- AUTH ROUTES ---
 
-app.post('/api/auth/signup', (req, res) => {
+app.post('/api/auth/signup', async (req, res) => {
   const { name, email, password, role } = req.body;
   const hashedPassword = bcrypt.hashSync(password, 8);
 
   try {
-    const info = db.prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)').run(name, email, hashedPassword, role || 'student');
+    const info = await db.prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)').run(name, email, hashedPassword, role || 'student');
     const user = { id: info.lastInsertRowid, name, email, role: role || 'student' };
     const token = jwt.sign(user, SECRET, { expiresIn: '24h' });
     res.json({ token, user });
@@ -53,9 +53,9 @@ app.post('/api/auth/signup', (req, res) => {
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
 
   if (!user || !bcrypt.compareSync(password, user.password)) {
     return res.status(401).json({ message: 'Invalid credentials' });
@@ -65,43 +65,45 @@ app.post('/api/auth/login', (req, res) => {
   res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
 });
 
-app.put('/api/auth/update-profile', authenticateToken, (req, res) => {
+app.put('/api/auth/update-profile', authenticateToken, async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ message: 'Name is required' });
 
-  db.prepare('UPDATE users SET name = ? WHERE id = ?').run(name, req.user.id);
+  await db.prepare('UPDATE users SET name = ? WHERE id = ?').run(name, req.user.id);
 
-  // Create a new token with the updated name (exclude JWT properties)
   const { exp, iat, ...userWithoutExp } = req.user;
   const updatedUser = { ...userWithoutExp, name };
-  // Create fresh token without exp/iat properties
   const token = jwt.sign({ id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, role: updatedUser.role }, SECRET, { expiresIn: '24h' });
 
   res.json({ message: 'Profile updated successfully', user: updatedUser, token });
 });
 
-app.put('/api/auth/update-password', authenticateToken, (req, res) => {
+app.put('/api/auth/update-password', authenticateToken, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
-  const user = db.prepare('SELECT password FROM users WHERE id = ?').get(req.user.id);
+  const user = await db.prepare('SELECT password FROM users WHERE id = ?').get(req.user.id);
 
   if (!bcrypt.compareSync(currentPassword, user.password)) {
     return res.status(401).json({ message: 'Incorrect current password' });
   }
 
   const hashedNewPassword = bcrypt.hashSync(newPassword, 8);
-  db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashedNewPassword, req.user.id);
+  await db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashedNewPassword, req.user.id);
 
   res.json({ message: 'Password updated successfully' });
 });
 
 // --- ADMIN ROUTES ---
-app.get('/api/admin/stats', authenticateToken, authorizeRoles('admin', 'instructor'), (req, res) => {
+app.get('/api/admin/stats', authenticateToken, authorizeRoles('admin', 'instructor'), async (req, res) => {
   try {
-    const totalStudents = db.prepare('SELECT COUNT(*) as count FROM users WHERE role = ?').get('student').count;
-    const totalEnrollments = db.prepare('SELECT COUNT(*) as count FROM enrollments').get().count;
-    const activeCourses = db.prepare('SELECT COUNT(*) as count FROM courses').get().count;
+    const totalStudentsData = await db.prepare('SELECT COUNT(*) as count FROM users WHERE role = ?').get('student');
+    const totalEnrollmentsData = await db.prepare('SELECT COUNT(*) as count FROM enrollments').get();
+    const activeCoursesData = await db.prepare('SELECT COUNT(*) as count FROM courses').get();
 
-    res.json({ totalStudents, totalEnrollments, activeCourses });
+    res.json({ 
+      totalStudents: totalStudentsData?.count || 0, 
+      totalEnrollments: totalEnrollmentsData?.count || 0, 
+      activeCourses: activeCoursesData?.count || 0 
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error fetching stats' });
   }
@@ -109,8 +111,8 @@ app.get('/api/admin/stats', authenticateToken, authorizeRoles('admin', 'instruct
 
 // --- COURSE ROUTES ---
 
-app.get('/api/courses', (req, res) => {
-  const courses = db.prepare(`
+app.get('/api/courses', async (req, res) => {
+  const courses = await db.prepare(`
     SELECT c.*, COALESCE(c.instructor_name, u.name) as instructor_name,
            (SELECT l.video_url FROM lessons l JOIN sections s ON l.section_id = s.id WHERE s.course_id = c.id ORDER BY s.order_index, l.order_index LIMIT 1) as video_url
     FROM courses c 
@@ -119,8 +121,8 @@ app.get('/api/courses', (req, res) => {
   res.json(courses);
 });
 
-app.get('/api/courses/:id', (req, res) => {
-  const course = db.prepare(`
+app.get('/api/courses/:id', async (req, res) => {
+  const course = await db.prepare(`
     SELECT c.*, COALESCE(c.instructor_name, u.name) as instructor_name 
     FROM courses c 
     JOIN users u ON c.instructor_id = u.id 
@@ -129,117 +131,112 @@ app.get('/api/courses/:id', (req, res) => {
 
   if (!course) return res.status(404).json({ message: 'Course not found' });
 
-  const sections = db.prepare('SELECT * FROM sections WHERE course_id = ? ORDER BY order_index').all(req.params.id);
+  const sections = await db.prepare('SELECT * FROM sections WHERE course_id = ? ORDER BY order_index').all(req.params.id);
 
-  sections.forEach(section => {
-    section.lessons = db.prepare('SELECT * FROM lessons WHERE section_id = ? ORDER BY order_index').all(section.id);
-  });
+  for (const section of sections) {
+    section.lessons = await db.prepare('SELECT * FROM lessons WHERE section_id = ? ORDER BY order_index').all(section.id);
+  }
 
   res.json({ ...course, sections });
 });
 
-app.post('/api/courses', authenticateToken, authorizeRoles('admin', 'instructor'), (req, res) => {
+app.post('/api/courses', authenticateToken, authorizeRoles('admin', 'instructor'), async (req, res) => {
   const { title, description, thumbnail, category, total_duration, price, video_url, instructor_name } = req.body;
-  const info = db.prepare(`
+  const info = await db.prepare(`
     INSERT INTO courses (title, description, thumbnail, category, instructor_id, total_duration, price, total_lessons, instructor_name) 
     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
   `).run(title, description, thumbnail, category, req.user.id, total_duration, price || 0, instructor_name || '');
 
   const courseId = info.lastInsertRowid;
-  const sectionInfo = db.prepare('INSERT INTO sections (course_id, title, order_index) VALUES (?, ?, ?)')
+  const sectionInfo = await db.prepare('INSERT INTO sections (course_id, title, order_index) VALUES (?, ?, ?)')
     .run(courseId, 'Course Content', 1);
-  db.prepare('INSERT INTO lessons (section_id, title, order_index, video_url, duration) VALUES (?, ?, ?, ?, ?)')
+  await db.prepare('INSERT INTO lessons (section_id, title, order_index, video_url, duration) VALUES (?, ?, ?, ?, ?)')
     .run(sectionInfo.lastInsertRowid, title, 1, video_url || '', total_duration || '');
 
   res.json({ id: courseId });
 });
 
-app.put('/api/courses/:id', authenticateToken, authorizeRoles('admin', 'instructor'), (req, res) => {
+app.put('/api/courses/:id', authenticateToken, authorizeRoles('admin', 'instructor'), async (req, res) => {
   const { title, description, thumbnail, category, total_duration, price, video_url, instructor_name } = req.body;
 
-  // Verify ownership or admin role
-  const course = db.prepare('SELECT instructor_id FROM courses WHERE id = ?').get(req.params.id);
+  const course = await db.prepare('SELECT instructor_id FROM courses WHERE id = ?').get(req.params.id);
   if (!course) return res.status(404).json({ message: 'Course not found' });
   if (req.user.role !== 'admin' && course.instructor_id !== req.user.id) {
     return res.status(403).json({ message: 'Unauthorized' });
   }
 
-  db.prepare(`
+  await db.prepare(`
     UPDATE courses 
     SET title = ?, description = ?, thumbnail = ?, category = ?, total_duration = ?, price = ?, instructor_name = ?
     WHERE id = ?
   `).run(title, description, thumbnail, category, total_duration, price, instructor_name || '', req.params.id);
 
-  const firstSection = db.prepare('SELECT id FROM sections WHERE course_id = ? ORDER BY order_index LIMIT 1').get(req.params.id);
+  const firstSection = await db.prepare('SELECT id FROM sections WHERE course_id = ? ORDER BY order_index LIMIT 1').get(req.params.id);
   if (firstSection) {
-    const firstLesson = db.prepare('SELECT id FROM lessons WHERE section_id = ? ORDER BY order_index LIMIT 1').get(firstSection.id);
+    const firstLesson = await db.prepare('SELECT id FROM lessons WHERE section_id = ? ORDER BY order_index LIMIT 1').get(firstSection.id);
     if (firstLesson) {
-      db.prepare('UPDATE lessons SET video_url = ?, duration = ?, title = ? WHERE id = ?').run(video_url || '', total_duration || '', title, firstLesson.id);
+      await db.prepare('UPDATE lessons SET video_url = ?, duration = ?, title = ? WHERE id = ?').run(video_url || '', total_duration || '', title, firstLesson.id);
     } else {
-      db.prepare('INSERT INTO lessons (section_id, title, order_index, video_url, duration) VALUES (?, ?, ?, ?, ?)')
+      await db.prepare('INSERT INTO lessons (section_id, title, order_index, video_url, duration) VALUES (?, ?, ?, ?, ?)')
         .run(firstSection.id, title, 1, video_url || '', total_duration || '');
-      db.prepare('UPDATE courses SET total_lessons = total_lessons + 1 WHERE id = ?').run(req.params.id);
+      await db.prepare('UPDATE courses SET total_lessons = total_lessons + 1 WHERE id = ?').run(req.params.id);
     }
   } else {
-    const sectionInfo = db.prepare('INSERT INTO sections (course_id, title, order_index) VALUES (?, ?, ?)')
+    const sectionInfo = await db.prepare('INSERT INTO sections (course_id, title, order_index) VALUES (?, ?, ?)')
       .run(req.params.id, 'Course Content', 1);
-    db.prepare('INSERT INTO lessons (section_id, title, order_index, video_url, duration) VALUES (?, ?, ?, ?, ?)')
+    await db.prepare('INSERT INTO lessons (section_id, title, order_index, video_url, duration) VALUES (?, ?, ?, ?, ?)')
       .run(sectionInfo.lastInsertRowid, title, 1, video_url || '', total_duration || '');
-    db.prepare('UPDATE courses SET total_lessons = total_lessons + 1 WHERE id = ?').run(req.params.id);
+    await db.prepare('UPDATE courses SET total_lessons = total_lessons + 1 WHERE id = ?').run(req.params.id);
   }
 
   res.json({ message: 'Course updated successfully' });
 });
 
-app.delete('/api/courses/:id', authenticateToken, authorizeRoles('admin', 'instructor'), (req, res) => {
-  console.log('DELETE request received for course ID:', req.params.id);
-  // Verify ownership or admin role
-  const course = db.prepare('SELECT instructor_id FROM courses WHERE id = ?').get(req.params.id);
+app.delete('/api/courses/:id', authenticateToken, authorizeRoles('admin', 'instructor'), async (req, res) => {
+  const course = await db.prepare('SELECT instructor_id FROM courses WHERE id = ?').get(req.params.id);
   if (!course) return res.status(404).json({ message: 'Course not found' });
   if (req.user.role !== 'admin' && course.instructor_id !== req.user.id) {
     return res.status(403).json({ message: 'Unauthorized' });
   }
 
-  // Manually delete dependent records to avoid FK constraints
-  db.prepare('DELETE FROM progress WHERE course_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM enrollments WHERE course_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM courses WHERE id = ?').run(req.params.id);
+  await db.prepare('DELETE FROM progress WHERE course_id = ?').run(req.params.id);
+  await db.prepare('DELETE FROM enrollments WHERE course_id = ?').run(req.params.id);
+  await db.prepare('DELETE FROM courses WHERE id = ?').run(req.params.id);
 
   res.json({ message: 'Course deleted successfully' });
 });
 
 // Add Section
-app.post('/api/courses/:id/sections', authenticateToken, authorizeRoles('admin', 'instructor'), (req, res) => {
+app.post('/api/courses/:id/sections', authenticateToken, authorizeRoles('admin', 'instructor'), async (req, res) => {
   const { title, order_index } = req.body;
-  const info = db.prepare('INSERT INTO sections (course_id, title, order_index) VALUES (?, ?, ?)').run(req.params.id, title, order_index);
+  const info = await db.prepare('INSERT INTO sections (course_id, title, order_index) VALUES (?, ?, ?)').run(req.params.id, title, order_index);
   res.json({ id: info.lastInsertRowid });
 });
 
 // Add Lesson
-app.post('/api/sections/:id/lessons', authenticateToken, authorizeRoles('admin', 'instructor'), (req, res) => {
+app.post('/api/sections/:id/lessons', authenticateToken, authorizeRoles('admin', 'instructor'), async (req, res) => {
   const { title, order_index, video_url, duration } = req.body;
-  const info = db.prepare('INSERT INTO lessons (section_id, title, order_index, video_url, duration) VALUES (?, ?, ?, ?, ?)').run(req.params.id, title, order_index, video_url, duration);
+  const info = await db.prepare('INSERT INTO lessons (section_id, title, order_index, video_url, duration) VALUES (?, ?, ?, ?, ?)').run(req.params.id, title, order_index, video_url, duration);
 
-  // Update course total lessons count
-  const section = db.prepare('SELECT course_id FROM sections WHERE id = ?').get(req.params.id);
-  db.prepare('UPDATE courses SET total_lessons = total_lessons + 1 WHERE id = ?').run(section.course_id);
+  const section = await db.prepare('SELECT course_id FROM sections WHERE id = ?').get(req.params.id);
+  await db.prepare('UPDATE courses SET total_lessons = total_lessons + 1 WHERE id = ?').run(section.course_id);
 
   res.json({ id: info.lastInsertRowid });
 });
 
 // --- ENROLLMENT & PROGRESS ---
 
-app.post('/api/courses/:id/enroll', authenticateToken, (req, res) => {
+app.post('/api/courses/:id/enroll', authenticateToken, async (req, res) => {
   try {
-    db.prepare('INSERT INTO enrollments (user_id, course_id) VALUES (?, ?)').run(req.user.id, req.params.id);
+    await db.prepare('INSERT INTO enrollments (user_id, course_id) VALUES (?, ?)').run(req.user.id, req.params.id);
     res.json({ message: 'Enrolled successfully' });
   } catch (err) {
     res.status(400).json({ message: 'Already enrolled' });
   }
 });
 
-app.get('/api/dashboard/enrolled', authenticateToken, (req, res) => {
-  const courses = db.prepare(`
+app.get('/api/dashboard/enrolled', authenticateToken, async (req, res) => {
+  const courses = await db.prepare(`
     SELECT c.*, u.name as instructor_name, e.enrolled_at
     FROM enrollments e
     JOIN courses c ON e.course_id = c.id
@@ -247,12 +244,11 @@ app.get('/api/dashboard/enrolled', authenticateToken, (req, res) => {
     WHERE e.user_id = ?
   `).all(req.user.id);
 
-  // Add progress info
-  courses.forEach(course => {
-    const completed = db.prepare('SELECT COUNT(*) as count FROM progress WHERE user_id = ? AND course_id = ?').get(req.user.id, course.id).count;
+  for (const course of courses) {
+    const completedData = await db.prepare('SELECT COUNT(*) as count FROM progress WHERE user_id = ? AND course_id = ?').get(req.user.id, course.id);
+    const completed = completedData?.count || 0;
 
-    // Get last completed lesson title
-    const lastLesson = db.prepare(`
+    const lastLesson = await db.prepare(`
       SELECT l.title 
       FROM progress p 
       JOIN lessons l ON p.lesson_id = l.id 
@@ -264,19 +260,21 @@ app.get('/api/dashboard/enrolled', authenticateToken, (req, res) => {
     course.completed_lessons = completed;
     course.progress_percentage = course.total_lessons > 0 ? Math.round((completed / course.total_lessons) * 100) : 0;
     course.last_lesson_title = lastLesson ? lastLesson.title : 'Not started yet';
-  });
+  }
 
   res.json(courses);
 });
 
-app.get('/api/courses/:id/progress', authenticateToken, (req, res) => {
-  const completedLessons = db.prepare('SELECT lesson_id FROM progress WHERE user_id = ? AND course_id = ?').all(req.user.id, req.params.id).map(p => p.lesson_id);
+app.get('/api/courses/:id/progress', authenticateToken, async (req, res) => {
+  const data = await db.prepare('SELECT lesson_id FROM progress WHERE user_id = ? AND course_id = ?').all(req.user.id, req.params.id);
+  const completedLessons = data.map(p => p.lesson_id);
   res.json({ completedLessons });
 });
 
-app.post('/api/courses/:id/lessons/:lessonId/complete', authenticateToken, (req, res) => {
+app.post('/api/courses/:id/lessons/:lessonId/complete', authenticateToken, async (req, res) => {
   try {
-    db.prepare('INSERT OR IGNORE INTO progress (user_id, course_id, lesson_id) VALUES (?, ?, ?)').run(req.user.id, req.params.id, req.params.lessonId);
+    // Note: Postgres INSERT OR IGNORE is ON CONFLICT DO NOTHING
+    await db.prepare('INSERT INTO progress (user_id, course_id, lesson_id) VALUES (?, ?, ?) ON CONFLICT DO NOTHING').run(req.user.id, req.params.id, req.params.lessonId);
     res.json({ message: 'Marked as completed' });
   } catch (err) {
     res.status(400).json({ message: 'Error marking progress' });
@@ -285,10 +283,9 @@ app.post('/api/courses/:id/lessons/:lessonId/complete', authenticateToken, (req,
 
 // --- STUDENT MANAGEMENT (Admin) ---
 
-// Get all students
-app.get('/api/admin/students', authenticateToken, authorizeRoles('admin'), (req, res) => {
+app.get('/api/admin/students', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const students = db.prepare(`
+    const students = await db.prepare(`
       SELECT u.id, u.name, u.email, u.role, u.created_at, u.blocked,
              (SELECT COUNT(*) FROM enrollments WHERE user_id = u.id) as enrolled_courses,
              (SELECT COUNT(*) FROM progress p JOIN courses c ON p.course_id = c.id WHERE p.user_id = u.id) as completed_lessons
@@ -302,13 +299,12 @@ app.get('/api/admin/students', authenticateToken, authorizeRoles('admin'), (req,
   }
 });
 
-// Search students
-app.get('/api/admin/students/search', authenticateToken, authorizeRoles('admin'), (req, res) => {
+app.get('/api/admin/students/search', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const { q } = req.query;
     if (!q) return res.json([]);
 
-    const students = db.prepare(`
+    const students = await db.prepare(`
       SELECT u.id, u.name, u.email, u.role, u.created_at, u.blocked,
              (SELECT COUNT(*) FROM enrollments WHERE user_id = u.id) as enrolled_courses,
              (SELECT COUNT(*) FROM progress p JOIN courses c ON p.course_id = c.id WHERE p.user_id = u.id) as completed_lessons
@@ -322,14 +318,13 @@ app.get('/api/admin/students/search', authenticateToken, authorizeRoles('admin')
   }
 });
 
-// Block/Unblock student
-app.put('/api/admin/students/:id/block', authenticateToken, authorizeRoles('admin'), (req, res) => {
+app.put('/api/admin/students/:id/block', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const student = db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(req.params.id, 'student');
+    const student = await db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(req.params.id, 'student');
     if (!student) return res.status(404).json({ message: 'Student not found' });
 
     const newBlockedStatus = student.blocked ? 0 : 1;
-    db.prepare('UPDATE users SET blocked = ? WHERE id = ?').run(newBlockedStatus, req.params.id);
+    await db.prepare('UPDATE users SET blocked = ? WHERE id = ?').run(newBlockedStatus, req.params.id);
 
     res.json({ message: newBlockedStatus ? 'Student blocked' : 'Student unblocked', blocked: newBlockedStatus });
   } catch (err) {
@@ -337,16 +332,14 @@ app.put('/api/admin/students/:id/block', authenticateToken, authorizeRoles('admi
   }
 });
 
-// Remove student
-app.delete('/api/admin/students/:id', authenticateToken, authorizeRoles('admin'), (req, res) => {
+app.delete('/api/admin/students/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const student = db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(req.params.id, 'student');
+    const student = await db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(req.params.id, 'student');
     if (!student) return res.status(404).json({ message: 'Student not found' });
 
-    // Delete related records first
-    db.prepare('DELETE FROM progress WHERE user_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM enrollments WHERE user_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM progress WHERE user_id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM enrollments WHERE user_id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
 
     res.json({ message: 'Student removed successfully' });
   } catch (err) {
@@ -354,13 +347,12 @@ app.delete('/api/admin/students/:id', authenticateToken, authorizeRoles('admin')
   }
 });
 
-// Get student progress
-app.get('/api/admin/students/:id/progress', authenticateToken, authorizeRoles('admin'), (req, res) => {
+app.get('/api/admin/students/:id/progress', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const student = db.prepare('SELECT id, name, email FROM users WHERE id = ? AND role = ?').get(req.params.id, 'student');
+    const student = await db.prepare('SELECT id, name, email FROM users WHERE id = ? AND role = ?').get(req.params.id, 'student');
     if (!student) return res.status(404).json({ message: 'Student not found' });
 
-    const enrollments = db.prepare(`
+    const enrollments = await db.prepare(`
       SELECT c.id, c.title, c.category, c.thumbnail, c.total_lessons, c.total_duration,
              e.enrolled_at,
              (SELECT COUNT(*) FROM progress p WHERE p.user_id = e.user_id AND p.course_id = e.course_id) as completed_lessons
@@ -369,12 +361,11 @@ app.get('/api/admin/students/:id/progress', authenticateToken, authorizeRoles('a
       WHERE e.user_id = ?
     `).all(req.params.id);
 
-    // Calculate progress for each course
-    enrollments.forEach(enrollment => {
+    for (const enrollment of enrollments) {
       enrollment.progress_percentage = enrollment.total_lessons > 0
         ? Math.round((enrollment.completed_lessons / enrollment.total_lessons) * 100)
         : 0;
-    });
+    }
 
     res.json({ student, enrollments });
   } catch (err) {
@@ -382,13 +373,12 @@ app.get('/api/admin/students/:id/progress', authenticateToken, authorizeRoles('a
   }
 });
 
-// Get student completed courses
-app.get('/api/admin/students/:id/courses', authenticateToken, authorizeRoles('admin'), (req, res) => {
+app.get('/api/admin/students/:id/courses', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const student = db.prepare('SELECT id, name, email FROM users WHERE id = ? AND role = ?').get(req.params.id, 'student');
+    const student = await db.prepare('SELECT id, name, email FROM users WHERE id = ? AND role = ?').get(req.params.id, 'student');
     if (!student) return res.status(404).json({ message: 'Student not found' });
 
-    const completedCourses = db.prepare(`
+    const completedCourses = await db.prepare(`
       SELECT c.id, c.title, c.category, c.thumbnail, c.total_lessons, c.total_duration,
              e.enrolled_at,
              (SELECT COUNT(*) FROM progress p WHERE p.user_id = e.user_id AND p.course_id = e.course_id) as completed_lessons,
@@ -398,7 +388,6 @@ app.get('/api/admin/students/:id/courses', authenticateToken, authorizeRoles('ad
       WHERE e.user_id = ?
     `).all(req.params.id);
 
-    // Filter to only completed courses (100% progress)
     const filtered = completedCourses.filter(course =>
       course.total_lessons > 0 && course.completed_lessons >= course.total_lessons
     );
@@ -409,16 +398,15 @@ app.get('/api/admin/students/:id/courses', authenticateToken, authorizeRoles('ad
   }
 });
 
-// Get user registration analytics (for line graph)
-app.get('/api/admin/analytics/users', authenticateToken, authorizeRoles('admin'), (req, res) => {
+app.get('/api/admin/analytics/users', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const { period = '30' } = req.query;
     const days = parseInt(period);
-
-    const users = db.prepare(`
+    // Note: SQLite DATE('now', '-X days') in PostgreSQL is CURRENT_DATE - INTERVAL 'X days'
+    const users = await db.prepare(`
       SELECT DATE(created_at) as date, COUNT(*) as count 
       FROM users 
-      WHERE created_at >= DATE('now', '-${days} days') AND role = 'student'
+      WHERE created_at >= (CURRENT_DATE - INTERVAL '${days} days') AND role = 'student'
       GROUP BY DATE(created_at)
       ORDER BY date ASC
     `).all();
@@ -429,19 +417,20 @@ app.get('/api/admin/analytics/users', authenticateToken, authorizeRoles('admin')
   }
 });
 
-// Get course enrollment and completion analytics (for bar graph)
-app.get('/api/admin/analytics/courses', authenticateToken, authorizeRoles('admin'), (req, res) => {
+app.get('/api/admin/analytics/courses', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const courses = db.prepare('SELECT c.id, c.title, c.total_lessons, (SELECT COUNT(*) FROM enrollments WHERE course_id = c.id) as enrolled_count FROM courses c').all();
-    const result = courses.map(course => {
-      const enrollments = db.prepare('SELECT user_id FROM enrollments WHERE course_id = ?').all(course.id);
+    const courses = await db.prepare('SELECT c.id, c.title, c.total_lessons, (SELECT COUNT(*) FROM enrollments WHERE course_id = c.id) as enrolled_count FROM courses c').all();
+    
+    // Convert to async array map
+    const result = await Promise.all(courses.map(async course => {
+      const enrollments = await db.prepare('SELECT user_id FROM enrollments WHERE course_id = ?').all(course.id);
       let completed = 0;
-      enrollments.forEach(e => {
-        const done = db.prepare('SELECT COUNT(*) as n FROM progress p JOIN lessons l ON p.lesson_id = l.id JOIN sections s ON l.section_id = s.id WHERE s.course_id = ? AND p.user_id = ?').get(course.id, e.user_id);
+      for (const e of enrollments) {
+        const done = await db.prepare('SELECT COUNT(*) as n FROM progress p JOIN lessons l ON p.lesson_id = l.id JOIN sections s ON l.section_id = s.id WHERE s.course_id = ? AND p.user_id = ?').get(course.id, e.user_id);
         if (done && done.n >= course.total_lessons && course.total_lessons > 0) completed++;
-      });
+      }
       return { id: course.id, title: course.title, enrolled_count: course.enrolled_count, completed_count: completed };
-    });
+    }));
     res.json(result);
   } catch (err) {
     console.error('Course analytics error:', err);
@@ -449,5 +438,4 @@ app.get('/api/admin/analytics/courses', authenticateToken, authorizeRoles('admin
   }
 });
 
-// Vercel serverless export
 module.exports = app;

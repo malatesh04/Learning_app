@@ -1,93 +1,125 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 const dotenv = require('dotenv');
-const fs = require('fs');
 
 dotenv.config();
 
-let dbPath = path.resolve(__dirname, process.env.DB_PATH || './lms.db');
+const pool = new Pool({
+  connectionString: 'postgresql://postgres:Malatesh@7676115923@db.lszarkffcpjbssmzkcmm.supabase.co:5432/postgres',
+  ssl: { rejectUnauthorized: false }
+});
 
-// In Vercel serverless functions, the file system is read-only. We copy the DB to /tmp so the app can still run.
-// Note: In Vercel, data saved here will reset after periods of inactivity, but it will prevent immediate crashes.
-if (process.env.VERCEL) {
-  const tmpDbPath = '/tmp/lms.db';
-  if (!fs.existsSync(tmpDbPath)) {
-    try {
-      fs.copyFileSync(dbPath, tmpDbPath);
-    } catch (err) {
-      console.error('Error copying DB to /tmp:', err);
+const db = {
+  prepare: (sql) => {
+    let pgSql = sql;
+    let index = 1;
+    while(pgSql.includes('?')) {
+      pgSql = pgSql.replace('?', `$${index++}`);
     }
+    
+    // SQLite uses 1 as true and 0 as false, Postgres uses true/false
+    const isInsert = pgSql.trim().toUpperCase().startsWith('INSERT');
+    if (isInsert && !pgSql.toUpperCase().includes('RETURNING')) {
+        pgSql += ' RETURNING id';
+    }
+
+    return {
+      get: async (...args) => {
+        try {
+          const res = await pool.query(pgSql, args);
+          return res.rows[0];
+        } catch (e) {
+          console.error("Query Error getting:", pgSql, args, e);
+          throw e;
+        }
+      },
+      all: async (...args) => {
+        try {
+          const res = await pool.query(pgSql, args);
+          return res.rows;
+        } catch (e) {
+          console.error("Query Error all:", pgSql, args, e);
+          throw e;
+        }
+      },
+      run: async (...args) => {
+        try {
+          const res = await pool.query(pgSql, args);
+          return { lastInsertRowid: isInsert && res.rows.length ? res.rows[0].id : null, changes: res.rowCount };
+        } catch (e) {
+          console.error("Query Error run:", pgSql, args, e);
+          throw e; // We log and throw so the backend can correctly handle 400s
+        }
+      }
+    };
   }
-  dbPath = tmpDbPath;
-}
+};
 
-const db = new Database(dbPath);
+// Initialize Tables inside Supabase (if they don't exist)
+(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        role TEXT CHECK(role IN ('student', 'instructor', 'admin')) NOT NULL DEFAULT 'student',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        blocked INTEGER DEFAULT 0
+      );
 
-// Initialize Tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    role TEXT CHECK(role IN ('student', 'instructor', 'admin')) NOT NULL DEFAULT 'student',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+      CREATE TABLE IF NOT EXISTS courses (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        thumbnail TEXT,
+        category TEXT,
+        instructor_name TEXT,
+        instructor_id INTEGER REFERENCES users(id),
+        total_lessons INTEGER DEFAULT 0,
+        total_duration TEXT,
+        price INTEGER DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
 
-  CREATE TABLE IF NOT EXISTS courses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    description TEXT,
-    thumbnail TEXT,
-    category TEXT,
-    instructor_id INTEGER,
-    total_lessons INTEGER DEFAULT 0,
-    total_duration TEXT,
-    price INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (instructor_id) REFERENCES users(id)
-  );
+      CREATE TABLE IF NOT EXISTS sections (
+        id SERIAL PRIMARY KEY,
+        course_id INTEGER REFERENCES courses(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        order_index INTEGER
+      );
 
-  CREATE TABLE IF NOT EXISTS sections (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    course_id INTEGER,
-    title TEXT NOT NULL,
-    order_index INTEGER,
-    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
-  );
+      CREATE TABLE IF NOT EXISTS lessons (
+        id SERIAL PRIMARY KEY,
+        section_id INTEGER REFERENCES sections(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        order_index INTEGER,
+        video_url TEXT NOT NULL,
+        duration TEXT
+      );
 
-  CREATE TABLE IF NOT EXISTS lessons (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    section_id INTEGER,
-    title TEXT NOT NULL,
-    order_index INTEGER,
-    video_url TEXT NOT NULL,
-    duration TEXT,
-    FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
-  );
+      CREATE TABLE IF NOT EXISTS enrollments (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        course_id INTEGER REFERENCES courses(id),
+        enrolled_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, course_id)
+      );
 
-  CREATE TABLE IF NOT EXISTS enrollments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    course_id INTEGER,
-    enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, course_id),
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (course_id) REFERENCES courses(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS progress (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    course_id INTEGER,
-    lesson_id INTEGER,
-    status TEXT DEFAULT 'completed',
-    completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, lesson_id),
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (course_id) REFERENCES courses(id),
-    FOREIGN KEY (lesson_id) REFERENCES lessons(id)
-  );
-`);
+      CREATE TABLE IF NOT EXISTS progress (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        course_id INTEGER REFERENCES courses(id),
+        lesson_id INTEGER REFERENCES lessons(id),
+        status TEXT DEFAULT 'completed',
+        completed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, lesson_id)
+      );
+    `);
+    console.log("Supabase Tables Connected successfully!");
+  } catch (err) {
+    console.error("Error creating tables:", err);
+  }
+})();
 
 module.exports = db;
