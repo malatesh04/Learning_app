@@ -438,4 +438,38 @@ app.get('/api/admin/analytics/courses', authenticateToken, authorizeRoles('admin
   }
 });
 
+const { ai, generateSystemPrompt } = require('./chatService');
+
+app.post('/api/chat', async (req, res) => {
+  const { message, history } = req.body;
+
+  try {
+    const courses = await db.prepare('SELECT title, category, total_duration, price FROM courses').all();
+    const systemPrompt = generateSystemPrompt(courses);
+
+    const formattedHistory = history.map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.text }]
+    }));
+
+    // Adding system instruction as the true system instruction role instead of injecting it as user history is preferred in SDK
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        ...formattedHistory, 
+        { role: 'user', parts: [{ text: message }] }
+      ],
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: 0.5
+      }
+    });
+
+    res.json({ text: response.text });
+  } catch (error) {
+    console.error('Chatbot API Error:', error);
+    res.status(500).json({ error: 'Sorry, I am having trouble connecting to my learning center right now. Please try again later.' });
+  }
+});
+
 module.exports = app;
