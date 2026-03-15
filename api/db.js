@@ -6,7 +6,7 @@ dotenv.config();
 const passPart1 = 'AVNS_';
 const passPart2 = 'Q8exy_6fyd1mgOQRW5B';
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || `postgres://avnadmin:${passPart1}${passPart2}@pg-1ac6e43c-xgamingx871-cfac.h.aivencloud.com:19157/defaultdb`,
+  connectionString: `postgres://avnadmin:${passPart1}${passPart2}@pg-1ac6e43c-xgamingx871-cfac.h.aivencloud.com:19157/defaultdb`,
   ssl: { rejectUnauthorized: false }
 });
 
