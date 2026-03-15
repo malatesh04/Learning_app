@@ -3,8 +3,8 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-// Use DATABASE_URL from environment variable - set this in Vercel dashboard
-const connectionString = process.env.DATABASE_URL;
+// Use DATABASE_URL or JWT_SECRET1 from environment variable
+const connectionString = process.env.DATABASE_URL || process.env.JWT_SECRET1;
 
 const pool = new Pool({
   connectionString,

@@ -12,7 +12,7 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
-const SECRET = process.env.JWT_SECRET || 'lms_secret_key';
+const SECRET = process.env.JWT_SECRET || process.env.JWT_SECRET1 || 'lms_secret_key';
 
 // Middleware
 const authenticateToken = (req, res, next) => {
