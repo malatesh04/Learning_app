@@ -3,25 +3,31 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-const passPart1 = 'AVNS_';
-const passPart2 = 'Q8exy_6fyd1mgOQRW5B';
+// Use DATABASE_URL from environment variable - set this in Vercel dashboard
+const connectionString = process.env.DATABASE_URL;
+
 const pool = new Pool({
-  connectionString: `postgres://avnadmin:${passPart1}${passPart2}@pg-1ac6e43c-xgamingx871-cfac.h.aivencloud.com:19157/defaultdb`,
+  connectionString,
   ssl: { rejectUnauthorized: false }
 });
+
+// Test connection
+pool.query('SELECT NOW()')
+  .then(() => console.log('Database connected successfully!'))
+  .catch(err => console.error('Database connection error:', err));
 
 const db = {
   prepare: (sql) => {
     let pgSql = sql;
     let index = 1;
-    while(pgSql.includes('?')) {
+    while (pgSql.includes('?')) {
       pgSql = pgSql.replace('?', `$${index++}`);
     }
-    
+
     // SQLite uses 1 as true and 0 as false, Postgres uses true/false
     const isInsert = pgSql.trim().toUpperCase().startsWith('INSERT');
     if (isInsert && !pgSql.toUpperCase().includes('RETURNING')) {
-        pgSql += ' RETURNING id';
+      pgSql += ' RETURNING id';
     }
 
     return {

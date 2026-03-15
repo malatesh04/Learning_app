@@ -99,10 +99,10 @@ app.get('/api/admin/stats', authenticateToken, authorizeRoles('admin', 'instruct
     const totalEnrollmentsData = await db.prepare('SELECT COUNT(*) as count FROM enrollments').get();
     const activeCoursesData = await db.prepare('SELECT COUNT(*) as count FROM courses').get();
 
-    res.json({ 
-      totalStudents: totalStudentsData?.count || 0, 
-      totalEnrollments: totalEnrollmentsData?.count || 0, 
-      activeCourses: activeCoursesData?.count || 0 
+    res.json({
+      totalStudents: totalStudentsData?.count || 0,
+      totalEnrollments: totalEnrollmentsData?.count || 0,
+      activeCourses: activeCoursesData?.count || 0
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error fetching stats' });
@@ -420,7 +420,7 @@ app.get('/api/admin/analytics/users', authenticateToken, authorizeRoles('admin')
 app.get('/api/admin/analytics/courses', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const courses = await db.prepare('SELECT c.id, c.title, c.total_lessons, (SELECT COUNT(*) FROM enrollments WHERE course_id = c.id) as enrolled_count FROM courses c').all();
-    
+
     // Convert to async array map
     const result = await Promise.all(courses.map(async course => {
       const enrollments = await db.prepare('SELECT user_id FROM enrollments WHERE course_id = ?').all(course.id);
@@ -456,7 +456,7 @@ app.post('/api/chat', async (req, res) => {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: [
-        ...formattedHistory, 
+        ...formattedHistory,
         { role: 'user', parts: [{ text: message }] }
       ],
       config: {
@@ -477,5 +477,9 @@ if (process.env.NODE_ENV !== 'production') {
     console.log(`Local DEV Server running on port ${PORT}`);
   });
 }
+
+// Auto-run seed on startup for Vercel
+const { seedData } = require('./seed');
+seedData();
 
 module.exports = app;
