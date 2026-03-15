@@ -449,6 +449,5 @@ app.get('/api/admin/analytics/courses', authenticateToken, authorizeRoles('admin
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+// Vercel serverless export
+module.exports = app;
