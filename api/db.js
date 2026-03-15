@@ -4,7 +4,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const pool = new Pool({
-  connectionString: 'postgresql://postgres:Malatesh@7676115923@db.lszarkffcpjbssmzkcmm.supabase.co:5432/postgres',
+  connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
@@ -116,7 +116,7 @@ const db = {
         UNIQUE(user_id, lesson_id)
       );
     `);
-    console.log("Supabase Tables Connected successfully!");
+    console.log("Aiven Tables Connected successfully!");
   } catch (err) {
     console.error("Error creating tables:", err);
   }
